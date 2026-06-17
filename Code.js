@@ -124,8 +124,11 @@ function getImage(id) {
     'method': 'get',
     'muteHttpExceptions': true
   });
-  var img = data.getBlob().getAs('image/png').setName(Number(new Date()) + '.png');
-  return img;
+  if (data.getResponseCode() !== 200) {
+    Logger.log('getImage error ' + data.getResponseCode() + ': ' + data.getContentText());
+    throw new Error('LINE_FETCH_' + data.getResponseCode());
+  }
+  return data.getBlob().getAs('image/png').setName(Number(new Date()) + '.png');
 }
 
 function saveImage(blob) {
@@ -157,21 +160,27 @@ function buildGeminiRequest(blob, modelName) {
   var base64Image = Utilities.base64Encode(blob.getBytes());
   var mimeType = blob.getContentType() || 'image/png';
   var prompt =
-    'Analyze this image. It is a digital screenshot from a Thai banking app. ' +
-    'Valid slips include "โอนเงินสำเร็จ" (Transfer) and "จ่ายบิลสำเร็จ" (Bill Payment). ' +
-    'Even if the slip has a background graphic (like a building) or watermarks, it IS a valid digital slip. ' +
-    'If it is a valid digital banking slip (e.g. K+, SCB Easy, etc.), extract the data into this EXACT JSON structure:\n' +
+    'Classify this image into exactly one of three categories and return the matching JSON.\n\n' +
+    'CATEGORY 1 — BANKING SLIP: A digital screenshot from a Thai banking app (K+, SCB Easy, etc.) ' +
+    'showing "โอนเงินสำเร็จ" (Transfer) or "จ่ายบิลสำเร็จ" (Bill Payment). ' +
+    'Background graphics or watermarks do NOT disqualify it. Return:\n' +
     '{\n' +
     '  "isSlip": true,\n' +
-    '  "date": "DD/MM/YYYY in CE year. e.g. If slip says 3 มิ.ย. 69, it means 2569, subtract 543 -> CE 2026. Format: 03/06/2026",\n' +
+    '  "date": "DD/MM/YYYY CE year. e.g. 3 มิ.ย. 69 = 2569 BE, subtract 543 = CE 2026 -> 03/06/2026",\n' +
     '  "time": "HH:MM",\n' +
-    '  "bankName": "Sender bank name (e.g. ธ.กสิกรไทย)",\n' +
-    '  "receiverName": "Receiver or Biller name (e.g. การประปาส่วนภูมิภาค)",\n' +
-    '  "amount": "Numeric amount string without commas (e.g. 11683.60)",\n' +
+    '  "bankName": "Sender bank (e.g. ธ.กสิกรไทย)",\n' +
+    '  "receiverName": "Receiver or Biller name",\n' +
+    '  "amount": "Numeric string without commas (e.g. 11683.60)",\n' +
     '  "type": "transfer or bill_payment",\n' +
-    '  "note": "Memo or note. If none, leave empty string"\n' +
-    '}\n' +
-    'If the image is definitely NOT a slip (e.g. a photo of a person, food, or landscape), return ONLY {"isSlip": false}. ' +
+    '  "note": "Memo if any, else empty string"\n' +
+    '}\n\n' +
+    'CATEGORY 2 — MACHINE CASH SUMMARY (เงินหลังเครื่อง): ' +
+    'A document or image titled "เงินหลังเครื่อง" showing cash denomination breakdown ' +
+    '(100 บาท, 50 บาท, 20 บาท amounts) and a grand total labeled "รวม". Return:\n' +
+    '{"isSlip": false, "isMachineCash": true, "date": "DD/MM/YYYY CE year", ' +
+    '"amount100": "numeric no commas", "amount50": "numeric no commas", ' +
+    '"amount20": "numeric no commas", "total": "numeric no commas"}\n\n' +
+    'CATEGORY 3 — NEITHER: Return ONLY {"isSlip": false}\n\n' +
     'Return ONLY raw JSON, no markdown formatting.';
   return {
     url: 'https://generativelanguage.googleapis.com/v1beta/models/' + modelName +
@@ -219,7 +228,13 @@ function parseGeminiResponse(response, modelName) {
   try { data = JSON.parse(jsonMatch[0]); } catch (e) {
     return { error: true, reason: 'json_parse' };
   }
-  if (!data.isSlip) return null;
+  if (!data.isSlip && !data.isMachineCash) return null;
+  if (data.isMachineCash) {
+    ['amount100', 'amount50', 'amount20', 'total'].forEach(function(k) {
+      if (typeof data[k] === 'string') data[k] = data[k].replace(/,/g, '');
+    });
+    return data;
+  }
   if (data.amount && typeof data.amount === 'string') data.amount = data.amount.replace(/,/g, '');
   return data;
 }
@@ -281,9 +296,9 @@ function recordToSheet(slipData, fileUrl) {
     }
 
     var ss = SpreadsheetApp.openById(SHEET_ID);
-    var sheet = ss.getSheetByName('Data');
+    var sheet = ss.getSheetByName('Payment');
     if (!sheet) {
-      sheet = ss.insertSheet('Data');
+      sheet = ss.insertSheet('Payment');
       sheet.appendRow(['Timestamp (GMT+7)', 'Date', 'Time', 'Bank Name', 'Receiver Name', 'Amount', 'Type', 'Note', 'File URL']);
     }
 
@@ -481,6 +496,81 @@ function buildErrorBubble(savedData, dateTimeStr, reason) {
   };
 }
 
+function recordMachineCashToSheet(data, fileUrl) {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var sheet = ss.getSheetByName('เงินหลังเครื่อง');
+    if (!sheet) {
+      sheet = ss.insertSheet('เงินหลังเครื่อง');
+      sheet.appendRow(['Timestamp (GMT+7)', 'Date', '100 บาท', '50 บาท', '20 บาท', 'รวม', 'File URL']);
+    }
+    var now = new Date();
+    var gmt7 = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    var ts = toCEYear(gmt7.getUTCFullYear()) + '/' +
+      ('0' + (gmt7.getUTCMonth() + 1)).slice(-2) + '/' +
+      ('0' + gmt7.getUTCDate()).slice(-2) + ' ' +
+      ('0' + gmt7.getUTCHours()).slice(-2) + ':' +
+      ('0' + gmt7.getUTCMinutes()).slice(-2) + ':' +
+      ('0' + gmt7.getUTCSeconds()).slice(-2);
+    sheet.appendRow([ts, data.date || '', data.amount100 || '', data.amount50 || '', data.amount20 || '', data.total || '', fileUrl || '']);
+  } catch (e) {
+    Logger.log('recordMachineCashToSheet error: ' + e);
+  }
+}
+
+function buildMachineCashTelegramText(data, savedData, dateTimeStr) {
+  return '💵 <b>เงินหลังเครื่อง</b>\n' +
+    '📅 วันที่: ' + (data.date || '-') + '\n' +
+    '💴 100 บาท: ' + (data.amount100 || '0') + ' บ.\n' +
+    '💵 50 บาท: ' + (data.amount50 || '0') + ' บ.\n' +
+    '💶 20 บาท: ' + (data.amount20 || '0') + ' บ.\n' +
+    '💰 รวม: <b>' + (data.total || '0') + '</b> บ.\n\n' +
+    '🕒 อัปโหลด: ' + dateTimeStr + '\n' +
+    '📂 <a href="' + savedData.url + '">เปิดใน Google Drive</a>';
+}
+
+function buildMachineCashBubble(data, savedData, dateTimeStr) {
+  return {
+    "type": "bubble",
+    "size": "kilo",
+    "header": {
+      "type": "box",
+      "layout": "vertical",
+      "backgroundColor": "#7C3AED",
+      "paddingAll": "16px",
+      "contents": [
+        { "type": "text", "text": "💵 เงินหลังเครื่อง", "color": "#ffffff", "weight": "bold", "size": "md" },
+        { "type": "text", "text": "บันทึกเรียบร้อยแล้ว", "color": "#ffffff", "size": "xs", "margin": "xs" }
+      ]
+    },
+    "body": {
+      "type": "box",
+      "layout": "vertical",
+      "spacing": "md",
+      "paddingAll": "16px",
+      "contents": [
+        { "type": "text", "text": "💰 " + (data.total || '0') + " บาท", "weight": "bold", "size": "xxl", "color": "#7C3AED" },
+        { "type": "separator", "margin": "md" },
+        {
+          "type": "box", "layout": "vertical", "spacing": "sm", "margin": "md",
+          "contents": [
+            flexInfoRow("📅 วันที่", data.date),
+            flexInfoRow("💴 100 บาท", data.amount100 ? data.amount100 + ' บ.' : '-'),
+            flexInfoRow("💵 50 บาท",  data.amount50  ? data.amount50  + ' บ.' : '-'),
+            flexInfoRow("💶 20 บาท",  data.amount20  ? data.amount20  + ' บ.' : '-')
+          ]
+        },
+        { "type": "separator", "margin": "md" },
+        { "type": "text", "text": "อัปโหลด: " + dateTimeStr, "size": "xxs", "color": "#aaaaaa", "margin": "md" }
+      ]
+    },
+    "footer": {
+      "type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "12px",
+      "contents": buildFooterButtons(savedData, dateTimeStr)
+    }
+  };
+}
+
 function processImageEventToBubble(event) {
   try {
     var img = getImage(event.message.id);
@@ -501,20 +591,27 @@ function processImageEventToBubble(event) {
     Logger.log('saveImage url: ' + savedData.url);
     var slipData = extractSlipDataWithFallback(imgForGemini);
 
-    // กรณี 1: อ่านไม่สำเร็จเพราะ API พลาด (ไม่ใช่เพราะรูป) -> แจ้งเตือนให้ส่งใหม่
+    // กรณี 1: API พลาด -> แจ้งเตือนให้ส่งใหม่
     if (slipData && slipData.error) {
       sendTelegram(buildErrorTelegramText(slipData.reason, savedData, dateTimeStr));
       return buildErrorBubble(savedData, dateTimeStr, slipData.reason);
     }
 
-    // กรณี 2: อ่านสลิปได้สำเร็จ
+    // กรณี 2: เงินหลังเครื่อง
+    if (slipData && slipData.isMachineCash) {
+      recordMachineCashToSheet(slipData, savedData.url);
+      sendTelegram(buildMachineCashTelegramText(slipData, savedData, dateTimeStr));
+      return buildMachineCashBubble(slipData, savedData, dateTimeStr);
+    }
+
+    // กรณี 3: สลิปโอนเงิน/จ่ายบิล
     if (slipData) {
       recordToSheet(slipData, savedData.url);
       sendTelegram(buildTelegramText(slipData, savedData, dateTimeStr));
       return buildSlipBubble(slipData, savedData, dateTimeStr);
     }
 
-    // กรณี 3: ไม่ใช่สลิปจริงๆ (Gemini ตอบ isSlip:false)
+    // กรณี 4: ไม่ใช่ทั้งสอง
     sendTelegram(buildTelegramText(null, savedData, dateTimeStr));
     return buildNonSlipBubble(savedData, dateTimeStr);
 
@@ -578,7 +675,7 @@ function handleDeleteImagePostback(event, parsedData) {
 
 // ===== ฟังก์ชันทดสอบ: ใส่ fileId รูปที่อยากเทสแล้วกด Run แล้วดู Executions log =====
 function testWithImage() {
-  var fileId = '1HVVm9wGnkuCMYZcwIkb6R5zdpTEfl0e1'; // <- เปลี่ยนเป็น fileId รูปที่อยากทดสอบ
+  var fileId = '1C9udtnII26JbaGxJvJ2M1FEvhaQUTYf5'; // เงินหลังเครื่อง sample
   var file   = DriveApp.getFileById(fileId);
   var blob   = file.getBlob().getAs('image/png');
   var slipData = extractSlipDataWithFallback(blob);
@@ -633,22 +730,38 @@ function doPost(e) {
         });
         var lineResponses = UrlFetchApp.fetchAll(lineRequests);
         var blobs = lineResponses.map(function(r) {
+          if (r.getResponseCode() !== 200) {
+            Logger.log('LINE batch fetch error: ' + r.getResponseCode() + ' ' + r.getContentText().substring(0, 100));
+            return null;
+          }
           return r.getBlob().getAs('image/png').setName(Number(new Date()) + '.png');
         });
 
-        // Phase 2: Gemini calls in parallel (primary model, no retry here)
+        // Phase 2: Gemini calls in parallel (primary model, only for successful fetches)
         var primaryModel = MODEL_FALLBACK[0];
-        var geminiRequests = blobs.map(function(b) {
-          return buildGeminiRequest(b.copyBlob(), primaryModel);
+        var validIdxs = [], geminiReqsToSend = [];
+        blobs.forEach(function(b, i) {
+          if (b) { validIdxs.push(i); geminiReqsToSend.push(buildGeminiRequest(b.copyBlob(), primaryModel)); }
         });
-        var geminiResponses = UrlFetchApp.fetchAll(geminiRequests);
+        var geminiRespMap = {};
+        if (geminiReqsToSend.length > 0) {
+          UrlFetchApp.fetchAll(geminiReqsToSend).forEach(function(r, i) {
+            geminiRespMap[validIdxs[i]] = r;
+          });
+        }
 
         // Phase 3: Drive save + bubble per image (sequential — Drive has no fetchAll)
         var batchDateTimeStr = getGmt7DateTimeString();
         for (var j = 0; j < imageEvents.length; j++) {
           try {
             var blob = blobs[j];
-            var slipData = parseGeminiResponse(geminiResponses[j], primaryModel);
+            if (!blob) {
+              Logger.log('Batch image ' + j + ' LINE fetch failed, skipping');
+              continue;
+            }
+            var slipData = geminiRespMap[j]
+              ? parseGeminiResponse(geminiRespMap[j], primaryModel)
+              : { error: true, reason: 'LINE_FETCH_FAILED' };
 
             // transient error → fall back to full serial retry/model-fallback
             if (slipData && slipData.error) {
@@ -666,6 +779,10 @@ function doPost(e) {
             if (slipData && slipData.error) {
               sendTelegram(buildErrorTelegramText(slipData.reason, savedData, batchDateTimeStr));
               bub = buildErrorBubble(savedData, batchDateTimeStr, slipData.reason);
+            } else if (slipData && slipData.isMachineCash) {
+              recordMachineCashToSheet(slipData, savedData.url);
+              sendTelegram(buildMachineCashTelegramText(slipData, savedData, batchDateTimeStr));
+              bub = buildMachineCashBubble(slipData, savedData, batchDateTimeStr);
             } else if (slipData) {
               recordToSheet(slipData, savedData.url);
               sendTelegram(buildTelegramText(slipData, savedData, batchDateTimeStr));
