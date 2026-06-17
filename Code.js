@@ -695,11 +695,6 @@ function doGet(e) {
 }
 
 function handleDashboardRequest(body) {
-  var secret = _props['DASHBOARD_SECRET'];
-  if (!secret || body.key !== secret) {
-    return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var sheet = ss.getSheetByName('เงินส่วนกลาง');
