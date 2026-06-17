@@ -687,11 +687,58 @@ function testTelegram() {
   Logger.log('Telegram test sent');
 }
 
+function handleDashboardRequest(body) {
+  var secret = _props['DASHBOARD_SECRET'];
+  if (!secret || body.key !== secret) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var sheet = ss.getSheetByName('เงินส่วนกลาง');
+    if (body.action === 'add') {
+      var now = new Date();
+      var gmt7 = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      var ts = toCEYear(gmt7.getUTCFullYear()) + '/' +
+        ('0' + (gmt7.getUTCMonth() + 1)).slice(-2) + '/' +
+        ('0' + gmt7.getUTCDate()).slice(-2) + ' ' +
+        ('0' + gmt7.getUTCHours()).slice(-2) + ':' +
+        ('0' + gmt7.getUTCMinutes()).slice(-2) + ':' +
+        ('0' + gmt7.getUTCSeconds()).slice(-2);
+      var mIn = parseFloat(body.moneyIn) || 0;
+      var mOut = parseFloat(body.moneyOut) || 0;
+      sheet.appendRow([ts, body.date, mIn, mIn - mOut, body.description || '', mOut]);
+    } else if (body.action === 'edit') {
+      var row = parseInt(body.row);
+      var mIn = parseFloat(body.moneyIn) || 0;
+      var mOut = parseFloat(body.moneyOut) || 0;
+      sheet.getRange(row, 2).setValue(body.date);
+      sheet.getRange(row, 3).setValue(mIn);
+      sheet.getRange(row, 4).setValue(mIn - mOut);
+      sheet.getRange(row, 5).setValue(body.description || '');
+      sheet.getRange(row, 6).setValue(mOut);
+    } else if (body.action === 'delete') {
+      sheet.deleteRow(parseInt(body.row));
+    }
+    return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    Logger.log('handleDashboardRequest error: ' + err);
+    return ContentService.createTextOutput(JSON.stringify({ error: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 function doPost(e) {
   Logger.log('doPost called');
 
   try {
     var body   = JSON.parse(e.postData.contents);
+
+    if (body.action) {
+      return handleDashboardRequest(body);
+    }
+
     var events = body.events || [];
     Logger.log('events count: ' + events.length);
 
