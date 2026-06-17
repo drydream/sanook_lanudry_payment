@@ -687,6 +687,13 @@ function testTelegram() {
   Logger.log('Telegram test sent');
 }
 
+function doGet(e) {
+  if (e.parameter && e.parameter.action) {
+    return handleDashboardRequest(e.parameter);
+  }
+  return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
+}
+
 function handleDashboardRequest(body) {
   var secret = _props['DASHBOARD_SECRET'];
   if (!secret || body.key !== secret) {
