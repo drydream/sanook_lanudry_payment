@@ -872,7 +872,7 @@ function buildFooterButtons(savedData, dateTimeStr) {
       "action": {
         "type": "postback",
         "label": "🗑️ ลบรูปนี้",
-        "data": "action=deleteImage&fileId=" + savedData.id + "&time=" + encodedTime,
+        "data": "action=deleteImage&fileId=" + savedData.id + "&time=" + encodedTime + "&sig=" + deleteImageSig(savedData.id),
         "displayText": "ขอลบรูปที่อัปโหลดเมื่อ " + dateTimeStr
       }
     }
@@ -1169,12 +1169,27 @@ function parsePostbackData(dataString) {
   return result;
 }
 
+// webhook ไม่ได้ตรวจ X-Line-Signature (GAS อ่าน header ไม่ได้) และ fileId เห็นได้จาก Sheet public
+// -> ปุ่มลบต้องมีลายเซ็น HMAC ที่บอทสร้างเอง ไม่งั้นใครก็ยิง postback ปลอมมา trash ไฟล์ใน Drive ได้
+function deleteImageSig(fileId) {
+  if (!DASHBOARD_API_SECRET) return '';
+  return Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature('deleteImage:' + fileId, DASHBOARD_API_SECRET)
+  ).replace(/=+$/, '');
+}
+
 function handleDeleteImagePostback(event, parsedData) {
   var fileId     = parsedData.fileId;
   var uploadTime = parsedData.time ? decodeURIComponent(parsedData.time) : '';
 
   if (!fileId) {
     sendReply(event.replyToken, "❌ ไม่พบ ID ของไฟล์");
+    return;
+  }
+  var expectedSig = deleteImageSig(fileId);
+  if (!expectedSig || parsedData.sig !== expectedSig) {
+    Logger.log('deleteImage rejected: bad signature for ' + fileId);
+    sendReply(event.replyToken, "❌ ปุ่มนี้ใช้ไม่ได้แล้ว (การ์ดเก่า) กรุณาลบใน Google Drive โดยตรง");
     return;
   }
 
