@@ -1226,11 +1226,42 @@ function doGet(e) {
   return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
 }
 
+var DASHBOARD_SHEETS = { payment: 'Payment', machineCash: 'เงินหลังเครื่อง', commonFund: 'เงินส่วนกลาง' };
+
+// Dashboard อ่านผ่านตรงนี้แทน gviz เพื่อให้ Sheet เป็น private ได้
+// format วันที่ให้ตรงกับที่ dashboard เคยได้จาก gviz: yyyy/MM/dd, yyyy/MM/dd HH:mm, คอลัมน์ Time = HH:mm
+function formatDashboardCell(value, header, tz) {
+  if (!(value instanceof Date)) return value;
+  var p = Utilities.formatDate(value, tz, 'yyyy|MM|dd|HH|mm').split('|');
+  var hm = p[3] + ':' + p[4];
+  if (header === 'Time') return hm;
+  var ymd = toCEYear(Number(p[0])) + '/' + p[1] + '/' + p[2];
+  return hm === '00:00' ? ymd : ymd + ' ' + hm;
+}
+
+function readDashboardSheet(sheetKey) {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sheet = ss.getSheetByName(DASHBOARD_SHEETS[sheetKey]);
+  if (!sheet || sheet.getLastRow() < 1) return { headers: [], rows: [] };
+  var tz = ss.getSpreadsheetTimeZone();
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0].map(String);
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    if (!values[i].some(function(v) { return v !== '' && v !== null; })) continue;
+    rows.push({
+      row: i + 1,
+      values: values[i].map(function(v, c) { return formatDashboardCell(v, headers[c], tz); })
+    });
+  }
+  return { headers: headers, rows: rows };
+}
+
 function validateDashboardRequest(body) {
   var allowed = {
-    machineCash: { add: true, edit: true, delete: true, setCycle: true },
-    payment: { delete: true },
-    commonFund: { add: true, edit: true, delete: true }
+    machineCash: { read: true, add: true, edit: true, delete: true, setCycle: true },
+    payment: { read: true, delete: true },
+    commonFund: { read: true, add: true, edit: true, delete: true }
   };
   if (!DASHBOARD_API_SECRET || body.apiSecret !== DASHBOARD_API_SECRET) {
     return 'unauthorized';
@@ -1257,6 +1288,7 @@ function handleDashboardRequest(body) {
   try {
     var validationMessage = validateDashboardRequest(body);
     if (validationMessage) return jsonOutput({ error: validationMessage });
+    if (body.action === 'read') return jsonOutput(readDashboardSheet(body.sheet));
     lock = LockService.getScriptLock();
     if (!lock.tryLock(10000)) return jsonOutput({ error: 'dashboard_busy' });
 
