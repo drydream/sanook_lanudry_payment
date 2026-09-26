@@ -18,11 +18,23 @@ var OCR_DATE_WARN_DAYS = 7;
 // Groq เป็นตัวหลัก: ~2s/รูป และไม่โดน capacity-shed แบบ Gemini free tier (ส.ค. 69 เจอ 503 ทั้ง 2 โมเดลพร้อมกัน)
 // Gemini เป็นตัวสำรอง: ช้ากว่า (20-60s) แต่คนละบริษัท ล่มพร้อมกันยาก
 // ถ้า provider ไม่มี API key จะถูกตัดจาก chain และแจ้งเตือน config แบบ deduplicate ทาง Telegram
-var MODEL_CANDIDATES = [
-  { provider: 'groq', model: 'qwen/qwen3.8-27b', timeoutSeconds: 8 }, // 3.6 ถูก deprecate 14 ก.ย. 69
-  { provider: 'gemini', model: 'gemini-3.5-flash-lite', timeoutSeconds: 20 },
-  { provider: 'gemini', model: 'gemini-3.5-flash', timeoutSeconds: 20 }
-];
+// Gemini ใช้ alias *-latest: Google เลื่อนรุ่นให้เอง ไม่โดนถอดรุ่นแบบ Groq
+// เปลี่ยนโมเดลได้โดยไม่ต้อง deploy: ตั้ง Script Property OCR_MODELS เช่น
+//   groq:qwen/qwen3.8-27b,gemini:gemini-flash-lite-latest,gemini:gemini-flash-latest
+var PROVIDER_TIMEOUT_SECONDS = { groq: 8, gemini: 20 };
+var DEFAULT_OCR_MODELS = 'groq:qwen/qwen3.8-27b,gemini:gemini-flash-lite-latest,gemini:gemini-flash-latest';
+
+function parseOcrModels(spec) {
+  return String(spec || '').split(',').map(function(item) {
+    var s = item.trim();
+    var i = s.indexOf(':');
+    var provider = s.slice(0, i);
+    return { provider: provider, model: s.slice(i + 1), timeoutSeconds: PROVIDER_TIMEOUT_SECONDS[provider] };
+  }).filter(function(e) { return e.timeoutSeconds && e.model; });
+}
+
+var MODEL_CANDIDATES = parseOcrModels(_props['OCR_MODELS']);
+if (!MODEL_CANDIDATES.length) MODEL_CANDIDATES = parseOcrModels(DEFAULT_OCR_MODELS);
 var MODEL_FALLBACK = MODEL_CANDIDATES.filter(function(e) {
   if (e.provider === 'groq') return !!GROQ_API_KEY;
   if (e.provider === 'gemini') return !!GEMINI_API_KEY;
@@ -120,6 +132,40 @@ function reportOcrConfigIfNeeded() {
   if (alertResult && alertResult.ok) {
     _scriptProperties.setProperty('OCR_CONFIG_ALERT_FINGERPRINT', fingerprint);
     _scriptProperties.setProperty('OCR_CONFIG_ALERT_AT', String(now));
+  }
+}
+
+// ===== เช็กทุกเช้าว่าโมเดลใน chain ยังมีอยู่ (ถามแค่ metadata ไม่เสียโควต้าอ่านรูป) =====
+// ตั้ง trigger เองใน editor: Triggers > Add Trigger > checkOcrModels > Time-driven > Day timer
+function checkOcrModels() {
+  var problems = [];
+  var groqIds = null;
+  MODEL_FALLBACK.forEach(function(entry) {
+    try {
+      if (entry.provider === 'groq') {
+        if (!groqIds) {
+          var r = UrlFetchApp.fetch('https://api.groq.com/openai/v1/models', {
+            headers: { 'Authorization': 'Bearer ' + GROQ_API_KEY }, muteHttpExceptions: true
+          });
+          if (r.getResponseCode() !== 200) { problems.push('groq /models -> http_' + r.getResponseCode()); groqIds = []; return; }
+          groqIds = JSON.parse(r.getContentText()).data.map(function(m) { return m.id; });
+        }
+        if (groqIds.length && groqIds.indexOf(entry.model) < 0) problems.push(modelLabel(entry) + ' -> ไม่มีในรายชื่อโมเดลแล้ว');
+      } else {
+        var g = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + entry.model, {
+          headers: { 'x-goog-api-key': GEMINI_API_KEY }, muteHttpExceptions: true
+        });
+        if (g.getResponseCode() !== 200) problems.push(modelLabel(entry) + ' -> http_' + g.getResponseCode());
+      }
+    } catch (e) {
+      problems.push(modelLabel(entry) + ' -> ' + e);
+    }
+  });
+  Logger.log(problems.length ? problems.join('\n') : 'all OCR models OK: ' + MODEL_FALLBACK.map(modelLabel).join(', '));
+  if (problems.length) {
+    sendTelegram('⚠️ <b>OCR model หาย/ใช้ไม่ได้</b>\n' + escapeTelegramHtml(problems.join('\n')) +
+      '\n\nแก้: ตั้ง Script Property <code>OCR_MODELS</code> เป็นโมเดลตัวใหม่ (ไม่ต้อง deploy)' +
+      '\nGroq: console.groq.com/docs/deprecations');
   }
 }
 
