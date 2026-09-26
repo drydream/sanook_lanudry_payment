@@ -5,8 +5,11 @@ Dashboard อยู่อีก repo: [sanook_laundry_report](https://github.com
 
 ## โครงสร้าง
 
-- `Code.js` — Google Apps Script ทั้งหมด (webhook `doPost`, OCR, Sheet, Telegram, dashboard CRUD)
+- `Code.js` — Google Apps Script ทั้งหมด (webhook `doPost`, OCR, Sheet, Telegram, dashboard read/CRUD)
 - `appsscript.json` — manifest / scopes
+
+> โค้ด GAS มี **2 ชุด**: ที่นี่ และ `sanook_laundry_report/gas/Code.js` (ชุดนั้นมี unit test: `npm run test:ocr`)
+> แก้ที่ไหนต้อง copy ไปอีกที่ให้ตรงกัน แล้วรัน test ก่อน deploy
 
 ## Deploy
 
@@ -62,6 +65,14 @@ groq:qwen/qwen3.8-27b,gemini:gemini-flash-lite-latest,gemini:gemini-flash-latest
 
 `checkOcrModels()` เช็กว่าโมเดลใน chain ยังมีอยู่ (ถาม metadata ไม่เสียโควต้า) ถ้าหาย → Telegram
 ตั้ง trigger: GAS editor → Triggers → Add Trigger → `checkOcrModels` → Time-driven → Day timer
+
+## ความปลอดภัย
+
+- **Sheet เป็น private (Restricted)** — dashboard อ่านผ่าน GAS action `read` (ต้องมี `DASHBOARD_API_SECRET`) ไม่ใช้ gviz แล้ว อย่าเปิด Sheet กลับเป็น public
+- **Dashboard ต้องใส่รหัส** — env `DASHBOARD_PASSWORD` (ถ้าไม่ตั้งใช้ `DELETE_PASSWORD`) ใน Vercel
+- **ปุ่มลบรูปใน LINE มีลายเซ็น HMAC** — webhook ตรวจ `X-Line-Signature` ไม่ได้ (GAS อ่าน header ไม่ได้) จึงเซ็น fileId ด้วย `DASHBOARD_API_SECRET` กันคนยิงคำสั่งลบปลอม การ์ดก่อน v58 กดลบไม่ได้
+- **เปลี่ยน `DASHBOARD_API_SECRET`** = ปุ่มลบในการ์ดทั้งหมดที่ส่งไปแล้วใช้ไม่ได้ และต้องแก้ทั้งใน GAS + Vercel พร้อมกัน
+- Gemini key ส่งทาง header `x-goog-api-key` เท่านั้น ห้ามใส่ใน URL (เคยหลุดไปกับ error message ใน LINE)
 
 ## เช็กข้อมูลวันที่ผิด
 
