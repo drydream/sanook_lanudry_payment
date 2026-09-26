@@ -16,7 +16,8 @@ Dashboard อยู่อีก repo: [sanook_laundry_report](https://github.com
 clasp pull
 # แก้ Code.js
 clasp push -f
-clasp deploy -i AKfycbyqYRGDwB3iuCdgqJAdKQgka1CDC_UHaMRqurA56vToiOsBhIGcdYYHfO4MEU7i9b0lNg -d "คำอธิบาย"
+clasp deployments          # หา ID ของ deployment ที่ LINE webhook ใช้ (ตัวที่มีเลขเวอร์ชันล่าสุด)
+clasp deploy -i <DEPLOYMENT_ID> -d "คำอธิบาย"
 ```
 
 - `clasp push` อย่างเดียว บอทยังไม่เปลี่ยน ต้อง `clasp deploy` ด้วย
