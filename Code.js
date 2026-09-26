@@ -345,7 +345,7 @@ var OCR_PROMPT =
     'Background graphics or watermarks do NOT disqualify it. Return:\n' +
     '{\n' +
     '  "isSlip": true,\n' +
-    '  "date": "DD/MM/YYYY CE year. e.g. 3 มิ.ย. 69 = 2569 BE, subtract 543 = CE 2026 -> 03/06/2026",\n' +
+    '  "date": "DD/MM/YYYY CE year. e.g. 3 มิ.ย. 69 = 2569 BE, subtract 543 = CE 2026 -> 03/06/2026. Thai month abbr: ม.ค.=01 ก.พ.=02 มี.ค.=03 เม.ย.=04 พ.ค.=05 มิ.ย.=06 ก.ค.=07 ส.ค.=08 ก.ย.=09 ต.ค.=10 พ.ย.=11 ธ.ค.=12",\n' +
     '  "time": "HH:MM",\n' +
     '  "bankName": "Sender bank (e.g. ธ.กสิกรไทย)",\n' +
     '  "receiverName": "Receiver or Biller name",\n' +
@@ -385,7 +385,7 @@ function buildGeminiRequest(blob, modelName, timeoutSeconds) {
         { 'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE' },
         { 'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE' }
       ],
-      'generationConfig': { 'responseMimeType': 'application/json', 'temperature': 0, 'thinkingConfig': { 'thinkingLevel': 'minimal' } }
+      'generationConfig': { 'responseMimeType': 'application/json', 'temperature': 0, 'thinkingConfig': { 'thinkingLevel': 'low' } }
     }),
     muteHttpExceptions: true,
     timeoutSeconds: timeoutSeconds || 12
