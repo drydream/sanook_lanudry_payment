@@ -65,6 +65,17 @@ groq:qwen/qwen3.8-27b,openrouter:google/gemini-3.1-flash-lite,gemini:gemini-flas
 
 รูปแบบใน `OCR_MODELS` ผิด → รายการนั้นถูกข้าม ถ้าผิดหมด → ใช้ค่า default
 
+### OpenRouter (ตัวสำรองเสียเงิน)
+
+- เติมเงินล่วงหน้าที่ openrouter.ai → Credits (เงินหมดแล้วหยุด ไม่มีบิลตามหลัง) · ดูยอด/ค่าใช้จริงต่อรูปที่หน้า **Activity**
+- เครดิตหมดอายุใน 1 ปี · ~฿0.017/รูป และใช้เฉพาะตอน Groq ติด → ปกติไม่ถึง ฿1/เดือน
+- เงินหมด / key เสีย → ข้ามไป Gemini ฟรีเอง (อาจช้าหรือล้มถ้า Gemini ก็ 503)
+- ห้ามใช้โมเดล `:free` (50 ครั้ง/วัน, ล่มบ่อย) และถ้าเปลี่ยนโมเดล ต้องเทสกับสลิปจริงเรื่อง **เดือนไทย** ก่อน
+
+### ดู log ตอนดีบัก
+
+Executions ของ Web App ไม่แสดง log (ไม่ได้ผูก GCP project) → เขียนฟังก์ชันทดสอบชั่วคราว **ไว้บนสุดของ `Code.js`** (dropdown ใน editor จะเลือกให้เอง) → `clasp push` (ไม่ต้อง deploy, บอทไม่กระทบ) → กด Run ใน editor → อ่าน Execution log → ลบฟังก์ชันแล้ว push อีกรอบ
+
 ### เช็กสุขภาพอัตโนมัติ
 
 `checkOcrModels()` เช็กว่าโมเดลใน chain ยังมีอยู่ (ถาม metadata ไม่เสียโควต้า) ถ้าหาย → Telegram
@@ -77,6 +88,13 @@ groq:qwen/qwen3.8-27b,openrouter:google/gemini-3.1-flash-lite,gemini:gemini-flas
 - **ปุ่มลบรูปใน LINE มีลายเซ็น HMAC** — webhook ตรวจ `X-Line-Signature` ไม่ได้ (GAS อ่าน header ไม่ได้) จึงเซ็น fileId ด้วย `DASHBOARD_API_SECRET` กันคนยิงคำสั่งลบปลอม การ์ดก่อน v58 กดลบไม่ได้
 - **เปลี่ยน `DASHBOARD_API_SECRET`** = ปุ่มลบในการ์ดทั้งหมดที่ส่งไปแล้วใช้ไม่ได้ และต้องแก้ทั้งใน GAS + Vercel พร้อมกัน
 - Gemini key ส่งทาง header `x-goog-api-key` เท่านั้น ห้ามใส่ใน URL (เคยหลุดไปกับ error message ใน LINE)
+
+## ประวัติเหตุการณ์
+
+**28 ก.ย. 69 — "อ่านสลิปไม่สำเร็จ" (แก้ใน v60–v62)**
+- สาเหตุ: Groq ติดลิมิตต่อนาที (429) พร้อมกับ Gemini ฟรีคนใช้เยอะจนตอบ 503 → ไม่มีตัวไหนอ่านได้
+- แก้: เพิ่ม OpenRouter (Gemini แบบเสียเงิน) เป็นตัวสำรองที่ 2 ก่อน Gemini ฟรี
+- ลองแล้วไม่เวิร์ก: qwen บน OpenRouter (อ่านเดือนผิด), gemini-3.5-flash-lite (บังคับเปิด thinking), เอา Gemini ฟรีขึ้นก่อนตัวเสียเงิน (ส่ง 5 รูปพร้อมกันแล้วหมดเวลา 1 รูป)
 
 ## เช็กข้อมูลวันที่ผิด
 
