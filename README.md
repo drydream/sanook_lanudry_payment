@@ -45,21 +45,21 @@ clasp deploy -i <DEPLOYMENT_ID> -d "คำอธิบาย"
 ค่า default (`DEFAULT_OCR_MODELS` ใน `Code.js`):
 
 ```
-groq:qwen/qwen3.8-27b,openrouter:google/gemini-3.1-flash-lite,gemini:gemini-flash-lite-latest
+groq:qwen/qwen3.8-27b,gemini:gemini-flash-lite-latest,openrouter:google/gemini-3.1-flash-lite
 ```
 
-ลองทีละตัวจากซ้ายไปขวา เวลารวมไม่เกิน 35 วินาที (Groq 8s, OpenRouter 15s, Gemini 20s)
+ลองทีละตัวจากซ้ายไปขวา เวลารวมไม่เกิน 35 วินาที (Groq 8s, Gemini 20s, OpenRouter 15s)
 
-- Groq ฟรีจำกัด 7,000 input token/นาที (~3 รูป) → เกินได้ 429 → ไป OpenRouter
-- OpenRouter: ~฿0.017/รูป, ห้าม provider ที่เก็บข้อมูล; qwen บน OpenRouter อ่าน ก.ย. เป็น ก.พ. จึงใช้ Gemini แทน
-- Gemini ฟรีตอบ 503 "high demand" บ่อย → เป็นแค่ตัวสุดท้าย
+- Groq ฟรีจำกัด 7,000 input token/นาที (~3 รูป) → เกินได้ 429 → ไป Gemini ฟรี แล้วค่อย OpenRouter
+- OpenRouter: ~฿0.017/รูป, เลือก provider ที่ตอบเร็วสุด; qwen บน OpenRouter อ่าน ก.ย. เป็น ก.พ. จึงใช้ Gemini แทน
+- Gemini ฟรีตอบ 503 "high demand" บ่อย / ช้า — ลองก่อนเพื่อประหยัด, OpenRouter เป็นตัวสุดท้ายที่เสถียร
 - Gemini ใช้ alias `*-latest` → Google เลื่อนรุ่นให้เอง
 - Groq รุ่นที่อ่านรูปได้มีแต่ preview → **ถูกถอดบ่อย**
 
 ### เมื่อ Groq ถอดโมเดล (เจอ `http_404` หรือ Telegram แจ้ง "OCR model หาย")
 
 1. ดูชื่อตัวแทนที่ https://console.groq.com/docs/deprecations
-2. Script Properties → ตั้ง `OCR_MODELS` = `groq:<ชื่อใหม่>,openrouter:google/gemini-3.1-flash-lite,gemini:gemini-flash-lite-latest`
+2. Script Properties → ตั้ง `OCR_MODELS` = `groq:<ชื่อใหม่>,gemini:gemini-flash-lite-latest,openrouter:google/gemini-3.1-flash-lite`
 3. Save — มีผลทันที ไม่ต้อง deploy
 4. ส่งสลิปจริงเทส 1 รูป เช็กว่า **วันที่** ถูก (เคยมีโมเดลอ่าน ก.ย. เป็น ก.พ.)
 
