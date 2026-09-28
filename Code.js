@@ -17,16 +17,16 @@ var OCR_DATE_WARN_DAYS = 7;
 
 // ===== รายชื่อโมเดลสำรอง (ลองทีละตัวจากบนลงล่าง ข้ามผู้ให้บริการได้) =====
 // Groq เป็นตัวหลัก: ~2s/รูป และไม่โดน capacity-shed แบบ Gemini free tier (ส.ค. 69 เจอ 503 ทั้ง 2 โมเดลพร้อมกัน)
-// Gemini เป็นตัวสำรอง (ฟรี): ช้ากว่า (20-60s) และ free tier ชอบตอบ 503 high demand — ลองของฟรีก่อน
+// OpenRouter เป็นตัวสำรองแบบเสียเงิน (เติมเงินล่วงหน้า ~฿0.017/รูป, ~2s): Gemini คิวเสียเงิน ไม่โดน free-tier shed
 // qwen3.8 บน OpenRouter (Reka/DeepInfra) อ่าน ก.ย. เป็น ก.พ. — มีแค่ Groq ที่อ่านถูก (ทดสอบ 28 ก.ย. 69)
 // gemini-3.5-flash-lite ใช้ไม่ได้: บังคับเปิด reasoning
-// OpenRouter เป็นตัวสุดท้ายแบบเสียเงิน (เติมเงินล่วงหน้า ~฿0.017/รูป, ~2s): Gemini คิวเสียเงิน ไม่โดน free-tier shed
+// Gemini เป็นตัวสุดท้าย (ฟรี): free tier ชอบตอบ 503 high demand (~5s/ครั้ง) — เคยลองไว้ลำดับ 2 แล้ว batch 5 รูปหมดเวลา 1 รูป (28 ก.ย. 69)
 // ถ้า provider ไม่มี API key จะถูกตัดจาก chain และแจ้งเตือน config แบบ deduplicate ทาง Telegram
 // Gemini ใช้ alias *-latest: Google เลื่อนรุ่นให้เอง ไม่โดนถอดรุ่นแบบ Groq
 // เปลี่ยนโมเดลได้โดยไม่ต้อง deploy: ตั้ง Script Property OCR_MODELS เช่น
-//   groq:qwen/qwen3.8-27b,gemini:gemini-flash-lite-latest,openrouter:google/gemini-3.1-flash-lite
+//   groq:qwen/qwen3.8-27b,openrouter:google/gemini-3.1-flash-lite,gemini:gemini-flash-lite-latest
 var PROVIDER_TIMEOUT_SECONDS = { groq: 8, openrouter: 15, gemini: 20 };
-var DEFAULT_OCR_MODELS = 'groq:qwen/qwen3.8-27b,gemini:gemini-flash-lite-latest,openrouter:google/gemini-3.1-flash-lite';
+var DEFAULT_OCR_MODELS = 'groq:qwen/qwen3.8-27b,openrouter:google/gemini-3.1-flash-lite,gemini:gemini-flash-lite-latest';
 
 function parseOcrModels(spec) {
   return String(spec || '').split(',').map(function(item) {
