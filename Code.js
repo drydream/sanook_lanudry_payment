@@ -1254,8 +1254,15 @@ function formatDashboardCell(value, header, tz) {
   return hm === '00:00' ? ymd : ymd + ' ' + hm;
 }
 
-function readDashboardSheet(sheetKey) {
+function readAllDashboardSheets() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
+  var out = {};
+  Object.keys(DASHBOARD_SHEETS).forEach(function(key) { out[key] = readDashboardSheet(key, ss); });
+  return out;
+}
+
+function readDashboardSheet(sheetKey, ss) {
+  ss = ss || SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName(DASHBOARD_SHEETS[sheetKey]);
   if (!sheet || sheet.getLastRow() < 1) return { headers: [], rows: [] };
   var tz = ss.getSpreadsheetTimeZone();
@@ -1276,7 +1283,8 @@ function validateDashboardRequest(body) {
   var allowed = {
     machineCash: { read: true, add: true, edit: true, delete: true, setCycle: true },
     payment: { read: true, delete: true },
-    commonFund: { read: true, add: true, edit: true, delete: true }
+    commonFund: { read: true, add: true, edit: true, delete: true },
+    all: { read: true }
   };
   if (!DASHBOARD_API_SECRET || body.apiSecret !== DASHBOARD_API_SECRET) {
     return 'unauthorized';
@@ -1303,7 +1311,9 @@ function handleDashboardRequest(body) {
   try {
     var validationMessage = validateDashboardRequest(body);
     if (validationMessage) return jsonOutput({ error: validationMessage });
-    if (body.action === 'read') return jsonOutput(readDashboardSheet(body.sheet));
+    if (body.action === 'read') {
+      return jsonOutput(body.sheet === 'all' ? readAllDashboardSheets() : readDashboardSheet(body.sheet));
+    }
     lock = LockService.getScriptLock();
     if (!lock.tryLock(10000)) return jsonOutput({ error: 'dashboard_busy' });
 
@@ -1367,7 +1377,8 @@ function handleDashboardRequest(body) {
         sheet.deleteRow(parseInt(body.row));
       }
     }
-    return jsonOutput({ ok: true });
+    // ส่งข้อมูลชีตล่าสุดกลับไปด้วย dashboard จะได้ไม่ต้องยิงอ่านอีกรอบ
+    return jsonOutput({ ok: true, data: readDashboardSheet(body.sheet, ss) });
   } catch (err) {
     Logger.log('handleDashboardRequest error: ' + err);
     return jsonOutput({ error: String(err) });
