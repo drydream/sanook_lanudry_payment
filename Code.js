@@ -1317,7 +1317,8 @@ function validateDashboardRequest(body) {
     machineCash: { read: true, add: true, edit: true, delete: true, setCycle: true },
     payment: { read: true, delete: true },
     commonFund: { read: true, add: true, edit: true, delete: true },
-    all: { read: true }
+    all: { read: true },
+    line: { announce: true }
   };
   if (!DASHBOARD_API_SECRET || body.apiSecret !== DASHBOARD_API_SECRET) {
     return 'unauthorized';
@@ -1329,6 +1330,10 @@ function validateDashboardRequest(body) {
     var row = Number(body.row);
     if (!Number.isInteger(row) || row < 2) return 'invalid row';
   }
+  if (body.action === 'announce' &&
+      (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 5000)) {
+    return 'invalid text';
+  }
   if (body.action === 'setCycle') {
     var rows = String(body.rows || '').split(',');
     if (!rows.length || rows.some(function(value) {
@@ -1339,11 +1344,32 @@ function validateDashboardRequest(body) {
   return '';
 }
 
+// จำกลุ่ม LINE ล่าสุดที่บอทได้ยิน ไว้ให้ action announce ส่งประกาศเข้ากลุ่มได้ (อยู่หลายกลุ่ม = กลุ่มล่าสุดชนะ)
+function rememberLineGroup(events) {
+  try {
+    for (var i = 0; i < events.length; i++) {
+      var src = events[i].source || {};
+      var id = src.groupId || src.roomId;
+      if (id) {
+        if (id !== _props['LINE_GROUP_ID']) _scriptProperties.setProperty('LINE_GROUP_ID', id);
+        return;
+      }
+    }
+  } catch (e) {
+    Logger.log('rememberLineGroup error: ' + e);
+  }
+}
+
 function handleDashboardRequest(body) {
   var lock = null;
   try {
     var validationMessage = validateDashboardRequest(body);
     if (validationMessage) return jsonOutput({ error: validationMessage });
+    if (body.action === 'announce') {
+      var groupId = _scriptProperties.getProperty('LINE_GROUP_ID');
+      if (!groupId) return jsonOutput({ error: 'no LINE group seen yet: send any message in the group first' });
+      return jsonOutput(sendPush(groupId, body.text));
+    }
     if (body.action === 'read') {
       return jsonOutput(body.sheet === 'all' ? readAllDashboardSheets() : readDashboardSheet(body.sheet));
     }
@@ -1470,6 +1496,7 @@ function doPost(e) {
 
     reportOcrConfigIfNeeded();
     var events = body.events || [];
+    rememberLineGroup(events);
     Logger.log('events count: ' + events.length);
     var imageEvents = [];
     var firstReplyToken = null;

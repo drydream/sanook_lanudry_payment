@@ -81,6 +81,24 @@ Executions ของ Web App ไม่แสดง log (ไม่ได้ผู
 `checkOcrModels()` เช็กว่าโมเดลใน chain ยังมีอยู่ (ถาม metadata ไม่เสียโควต้า) ถ้าหาย → Telegram
 ตั้ง trigger: GAS editor → Triggers → Add Trigger → `checkOcrModels` → Time-driven → Day timer
 
+## ประกาศเข้ากลุ่ม LINE (ผ่านบอท)
+
+บอทจำกลุ่มล่าสุดที่มีคนส่งข้อความ/รูปเข้ามาไว้ใน Script Property `LINE_GROUP_ID` (อัตโนมัติ, ถ้าบอทอยู่หลายกลุ่ม = กลุ่มล่าสุด)
+ส่งประกาศด้วย dashboard action `announce` (ต้องมี `GAS_URL` + `DASHBOARD_API_SECRET` ใน `sanook-report/.env.local`):
+
+```bash
+cd sanook-report
+node -e '
+const env=Object.fromEntries(require("fs").readFileSync(".env.local","utf8").split(/\r?\n/).filter(l=>l.includes("=")).map(l=>[l.slice(0,l.indexOf("=")),l.slice(l.indexOf("=")+1)]));
+fetch(env.GAS_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({apiSecret:env.DASHBOARD_API_SECRET,sheet:"line",action:"announce",text:process.argv[1]})})
+.then(r=>r.text()).then(console.log)' "ข้อความประกาศ"
+```
+
+- ได้ `{"ok":true,...}` = ส่งแล้ว · `no LINE group seen yet` = ยังไม่มีใครพิมพ์ในกลุ่มหลัง deploy v65 → ให้ใครพิมพ์อะไรก็ได้ 1 ครั้ง
+- เป็น push message → นับโควต้าข้อความรายเดือนของ LINE OA (reply ปกติไม่นับ)
+- ไม่รองรับ @All (ส่งเป็นข้อความธรรมดา)
+
 ## ความปลอดภัย
 
 - **Sheet เป็น private (Restricted)** — dashboard อ่านผ่าน GAS action `read` (ต้องมี `DASHBOARD_API_SECRET`) ไม่ใช้ gviz แล้ว อย่าเปิด Sheet กลับเป็น public
