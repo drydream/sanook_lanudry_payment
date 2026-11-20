@@ -48,9 +48,25 @@ var MODEL_FALLBACK = MODEL_CANDIDATES.filter(function(e) {
 
 function modelLabel(entry) { return entry.provider + ':' + entry.model; }
 
-function entryWithDeadline(entry, deadlineAt) {
+// เก็บเวลาไว้ให้ตัวสำรองเสมอ: 20 พ.ย. 69 Groq timeout กินเวลาที่เหลือหมด OpenRouter เลยไม่ได้ลอง
+// fetchAll ใช้เวลาเกิน timeoutSeconds ได้ ~3s จึงเผื่อไว้ 12s (OpenRouter ปกติ ~2s)
+var FALLBACK_RESERVE_SECONDS = 12;
+var MIN_ATTEMPT_SECONDS = 3;
+
+// ตัวหลัก (index 0) ต้องเหลือเวลาให้ตัวสำรอง; ตัวสำรองใช้เวลาที่เหลือได้เต็ม
+function needsBackupReserve(idx) {
+  return idx === 0 && MODEL_FALLBACK.length > 1;
+}
+
+// คืน null = เวลาไม่พอสำหรับตัวหลักแล้ว ให้ข้ามไปตัวสำรองเลย
+function entryWithDeadline(entry, deadlineAt, reserveForBackup) {
   if (!deadlineAt) return entry;
-  var remainingSeconds = Math.max(1, Math.floor((deadlineAt - Date.now()) / 1000));
+  var remainingSeconds = Math.floor((deadlineAt - Date.now()) / 1000);
+  if (reserveForBackup) {
+    remainingSeconds -= FALLBACK_RESERVE_SECONDS;
+    if (remainingSeconds < MIN_ATTEMPT_SECONDS) return null;
+  }
+  remainingSeconds = Math.max(1, remainingSeconds);
   return {
     provider: entry.provider,
     model: entry.model,
@@ -320,7 +336,8 @@ function getImage(id) {
     Logger.log('getImage error ' + data.getResponseCode() + ': ' + data.getContentText());
     throw new Error('LINE_FETCH_' + data.getResponseCode());
   }
-  return data.getBlob().getAs('image/png').setName(Number(new Date()) + '.png');
+  // เก็บ JPEG เดิมจาก LINE: แปลงเป็น PNG ทำให้ไฟล์โตเป็น 5.5MB (20 พ.ย. 69) ช้าทั้งตอนแปลง/อัป Drive/ส่ง OCR
+  return data.getBlob().setName(Number(new Date()) + '.jpg');
 }
 
 function saveImage(blob) {
@@ -653,7 +670,12 @@ function extractSlipDataWithFallback(blob, startIdx, deadlineAt) {
       break;
     }
     var model = modelLabel(MODEL_FALLBACK[m]);
-    var result = extractSlipData(blob, entryWithDeadline(MODEL_FALLBACK[m], deadlineAt));
+    var timedEntry = entryWithDeadline(MODEL_FALLBACK[m], deadlineAt, needsBackupReserve(m));
+    if (!timedEntry) {
+      attempts.push(model + ' -> skipped_low_budget');
+      continue;
+    }
+    var result = extractSlipData(blob, timedEntry);
 
     // อ่านสลิปได้สำเร็จ
     if (result && !result.error) {
@@ -747,11 +769,14 @@ function extractBatchWithFallback(blobs, deadlineAt) {
         };
         return;
       }
+      var timedEntry = entryWithDeadline(MODEL_FALLBACK[state.nextIdx], deadlineAt, needsBackupReserve(state.nextIdx));
+      if (!timedEntry) {
+        state.attempts.push(modelLabel(MODEL_FALLBACK[state.nextIdx]) + ' -> skipped_low_budget');
+        state.nextIdx++;
+        timedEntry = entryWithDeadline(MODEL_FALLBACK[state.nextIdx], deadlineAt, false);
+      }
       activeIdxs.push(idx);
-      requests.push(buildOcrRequest(
-        state.blob.copyBlob(),
-        entryWithDeadline(MODEL_FALLBACK[state.nextIdx], deadlineAt)
-      ));
+      requests.push(buildOcrRequest(state.blob.copyBlob(), timedEntry));
     });
     if (!requests.length) break;
 
@@ -771,6 +796,14 @@ function extractBatchWithFallback(blobs, deadlineAt) {
       var state = states[stateIdx];
       var entry = MODEL_FALLBACK[state.nextIdx];
       var label = modelLabel(entry);
+      // fetchAll ทิ้งผลทั้ง wave ถ้ามี request เดียว timeout; error บอก URL ตัวที่พัง
+      // -> request ของ provider อื่นยิงซ้ำตัวเดิมได้ 1 ครั้ง ไม่ต้องตกไปตัวถัดไปเพราะคนอื่นพัง
+      if (waveException && waveException.indexOf('https://') >= 0 &&
+          waveException.indexOf(requests[responseIdx].url) < 0 && !state.waveRetried) {
+        state.waveRetried = true;
+        state.attempts.push(label + ' -> lost_in_wave (' + waveMs + 'ms)');
+        return;
+      }
       var parsed = waveException
         ? { error: true, reason: 'batch_fetch_exception', detail: waveException }
         : (responses[responseIdx]
@@ -1487,7 +1520,7 @@ function doPost(e) {
           Logger.log('LINE batch fetch failed for image ' + idx);
           return null;
         }
-        return response.getBlob().getAs('image/png').setName(Number(new Date()) + '-' + idx + '.png');
+        return response.getBlob().setName(Number(new Date()) + '-' + idx + '.jpg'); // JPEG เดิม ดู getImage
       });
 
       var batchDateTimeStr = getGmt7DateTimeString();
